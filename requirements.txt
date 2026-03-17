@@ -1,0 +1,8 @@
+streamlit
+plotly
+anthropic
+pandas
+numpy
+requests
+audio-recorder-streamlit
+openai
