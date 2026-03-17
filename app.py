@@ -11,6 +11,7 @@ import hashlib
 import base64
 import re
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 import calendar_sync
 from audio_recorder_streamlit import audio_recorder
@@ -202,6 +203,18 @@ def get_cached_health_data(url, token):
 def get_cached_glycemic_risk(df, context, whoop_data=None, meeting_count=0, speaker_mode=False, owm_api_key="", is_real_data=False):
     return logic.calc_glycemic_risk(df, context, whoop_data, meeting_count, speaker_mode, owm_api_key, is_real_data)
 
+# --- LINTER FIX: Initialize variables to resolve "unbound" warnings ---
+w_rec = w_sleep = w_hrv = w_rhr = 0
+w_strain = 0.0
+meeting_count = 0
+speaker_mode = False
+is_real_cgm = False
+full_data = pd.DataFrame()
+latest_bg = pd.Series({'Glucose_Value': 100, 'Trend': 'Steady', 'Timestamp': datetime.now()})
+raw_reason = ""
+status = ""
+color_hex = ""
+
 try:
     with st.spinner("Synchronizing biometric telemetry..."):
         whoop_metrics = whoop.fetch_whoop_recovery(st.session_state.whoop_token) if st.session_state.whoop_token else None
@@ -314,6 +327,13 @@ elif st.session_state.current_context == "Exercise":
             if col2.button("❌ No, dismiss", key="no_rec_early"):
                 st.session_state.muted_intercepts["Recovery"] = datetime.now() + timedelta(hours=2)
                 st.rerun()
+
+# --- LINTER FIX: Initialize UI event variables to remove locals() warnings ---
+db_search_submit = False
+db_search_query = ""
+text_submit = False
+text_input = ""
+food_image = None
 
 with st.container(border=True):
     hc1, hc2, hc3, hc4, hc5 = st.columns([3.0, 1.8, 1.8, 1.8, 1.6])
@@ -498,7 +518,9 @@ st.divider()
 # -----------------------------------------------------------------------------
 # 6. EVENT PROCESSORS (SEMANTIC NLP DETECT)
 # -----------------------------------------------------------------------------
-if 'db_search_submit' in locals() and db_search_submit and db_search_query:
+
+# --- Process USDA Text Search ---
+if db_search_submit and db_search_query:
     with st.spinner(f"Querying USDA Macro Database for '{db_search_query}'..."):
         try:
             sys = f"""You are my elite personal clinical nutritionist managing my Type 1 Diabetes.
@@ -521,7 +543,8 @@ if 'db_search_submit' in locals() and db_search_submit and db_search_query:
             st.rerun() 
         except Exception as e: st.error(f"Search Failed: {e}")
 
-if 'text_submit' in locals() and text_submit and text_input:
+# --- Process Audio/Text Journals ---
+if text_submit and text_input:
     with st.spinner("Correlating subjective report with objective telemetry..."):
         try:
             ctx = {"context": st.session_state.current_context, "meetings": meeting_count, "glucose": int(latest_bg['Glucose_Value']), "trend": latest_bg['Trend']}
@@ -545,7 +568,8 @@ if 'text_submit' in locals() and text_submit and text_input:
             st.rerun() 
         except Exception as e: st.error(f"Failed: {e}")
 
-if 'food_image' in locals() and food_image is not None:
+# --- Process Food Camera Image ---
+if food_image is not None:
     img_hash = hashlib.md5(food_image.getvalue()).hexdigest()
     if img_hash != st.session_state.get("last_img_hash"):
         st.session_state.last_img_hash = img_hash
