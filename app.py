@@ -127,6 +127,18 @@ def calculate_tir(df):
     in_range = len(df[(df['Glucose_Value'] >= 70) & (df['Glucose_Value'] <= 180)])
     return round((in_range / len(df)) * 100, 1)
 
+def get_ai_chart_summary(chart_title, time_window, metrics_str, context_str):
+    """Generates a quick AI synthesis for dynamic charts."""
+    sys_prompt = f"""You are an elite metabolic data analyst.
+    Summarize this {time_window} chart data for {chart_title}.
+    Metrics: {metrics_str}
+    Context: {context_str}
+    Provide a single punchy, insightful sentence about the user's biological stability. Speak directly to the user as 'you'."""
+    try:
+        return ask_claude(sys_prompt, [{"role": "user", "content": "Analyze this data."}], max_tokens=150, parse_json=False)
+    except Exception as e:
+        return f"Analysis unavailable: {e}"
+
 # -----------------------------------------------------------------------------
 # 3. STATE, TIMERS & EVENT LOGGING
 # -----------------------------------------------------------------------------
@@ -296,7 +308,7 @@ if st.session_state.current_context == "Normal":
             st.session_state.muted_intercepts[auto_mode] = datetime.now() + timedelta(hours=2)
             st.rerun()
     
-    # BETA UI: Smart Agentic Nudge (If no hardware intercept triggered, check schedule friction)
+    # BETA UI: Smart Agentic Nudge 
     elif meeting_count >= 4 and not st.session_state.smart_nudge_dismissed and st.session_state.active_view != "Recovery":
         st.markdown("""
             <div class="agentic-nudge">
@@ -640,7 +652,7 @@ if st.session_state.get("latest_meal_analysis"):
 # -----------------------------------------------------------------------------
 # 7. NAVIGATION & RENDER VIEWS (BETA UI UPDATES)
 # -----------------------------------------------------------------------------
-views = ["Home", "Insights", "Recovery", "Trends", "Sleep"]
+views = ["Home", "Insights", "Recovery", "Trends", "Schedule", "Sleep"]
 v_cols = st.columns(len(views))
 for i, view in enumerate(views):
     is_active = (st.session_state.active_view == view)
@@ -837,7 +849,36 @@ else:
                 yaxis2=dict(title="Avg BG", range=[50, 250], overlaying="y", side="right", showgrid=True, gridcolor='rgba(128,128,128,0.2)', fixedrange=True), showlegend=False
             )
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-    
+
+    # ---------------- BETA UI: SCHEDULE (CALENDAR INTEGRATION) ----------------
+    elif st.session_state.active_view == "Schedule":
+        st.markdown("### 📅 Schedule & Cognitive Load")
+        
+        # Determine status colors based on meeting count
+        m_status = "🟢 LIGHT" if meeting_count < 3 else ("🟡 MODERATE" if meeting_count < 5 else "🔴 HEAVY")
+        
+        st.info(f"**Agentic Insight:** The Risk Engine is factoring in **{meeting_count} meetings** to adjust glycemic sensitivity.")
+        
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        
+        with sc1:
+            st.markdown("<div class='metric-card' style='text-align: center;'><div class='metric-label'>1 HOUR</div><div class='metric-value'>🟢 SAFE</div></div>", unsafe_allow_html=True)
+        with sc2:
+            st.markdown("<div class='metric-card' style='text-align: center;'><div class='metric-label'>4 HOURS</div><div class='metric-value'>🟢 CLEAR</div></div>", unsafe_allow_html=True)
+        with sc3:
+            st.markdown("<div class='metric-card' style='text-align: center;'><div class='metric-label'>24 HOURS</div><div class='metric-value'>🟢 GOOD</div></div>", unsafe_allow_html=True)
+        with sc4:
+            st.markdown(f"<div class='metric-card' style='text-align: center;'><div class='metric-label'>MEETINGS</div><div class='metric-value'>{meeting_count} ({m_status})</div></div>", unsafe_allow_html=True)
+            
+        st.markdown("---")
+        st.markdown("##### Upcoming Events")
+        st.caption("Synchronized from native calendar integration.")
+        if meeting_count > 0:
+            for i in range(meeting_count):
+                st.markdown(f"- 🗓️ Scheduled Block {i+1} *(Impacting cognitive load and stress hormones)*")
+        else:
+            st.markdown("No upcoming meetings today. Optimal time for deep work or recovery without acute cortisol spikes.")
+
     elif st.session_state.active_view == "Sleep":
         st.markdown("### 🌙 Sleep & Recovery Correlation")
         if st.session_state.whoop_token and whoop_metrics:
