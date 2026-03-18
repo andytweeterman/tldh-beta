@@ -183,7 +183,7 @@ if "active_view" not in st.session_state: st.session_state.active_view = "Home"
 if "latest_trend_insight" not in st.session_state: st.session_state.latest_trend_insight = "No macro trend synthesized yet. Run an analysis in the Trends tab."
 if "show_dossier" not in st.session_state: st.session_state.show_dossier = False
 if "smart_nudge_dismissed" not in st.session_state: st.session_state.smart_nudge_dismissed = False
-if "hydration_oz" not in st.session_state: st.session_state.hydration_oz = 24
+if "hydration_oz" not in st.session_state: st.session_state.hydration_oz = 0
 
 if st.session_state._toast:
     st.toast(st.session_state._toast)
@@ -290,9 +290,8 @@ st.markdown(f"""
 # Hardware Auto-Detect Intercepts (Alpha Logic)
 if st.session_state.current_context == "Normal":
     auto_mode, auto_dur, auto_reason = None, 0, ""
-    if len(full_data) >= 6 and all(full_data.tail(6)['Glucose_Value'] > 160):
-        auto_mode, auto_dur, auto_reason = "Stressed", 3, "Sustained elevated glucose detected."
-    elif w_strain > 14.0 and latest_bg['Trend'] in ["Falling", "Falling Fast"]:
+   
+    if w_strain > 14.0 and latest_bg['Trend'] in ["Falling", "Falling Fast"]:
         auto_mode, auto_dur, auto_reason = "Recovery", 2, "High Whoop strain detected with dropping glucose (Post-Workout)."
     elif w_strain > 14.0:
         auto_mode, auto_dur, auto_reason = "Exercise", 2, "High systemic strain detected via Whoop."
@@ -384,9 +383,12 @@ with st.container(border=True):
         mood_str = "Elevated" if st.session_state.current_context == "Normal" else st.session_state.current_context
         vectors.append(f"🧠 Mood: {mood_str}")
         
-        # 5. Hydration
-        hydro_icon = "🟢" if st.session_state.hydration_oz >= 64 else "🟡" if st.session_state.hydration_oz >= 32 else "🔴"
-        vectors.append(f"{hydro_icon} {st.session_state.hydration_oz}oz Hydration")
+       # 5. Hydration
+        if st.session_state.hydration_oz == 0:
+            vectors.append("🟣 No Hydration Data")
+        else:
+            hydro_icon = "🟢" if st.session_state.hydration_oz >= 64 else "🟡" if st.session_state.hydration_oz >= 32 else "🔴"
+            vectors.append(f"{hydro_icon} {st.session_state.hydration_oz}oz Hydration")
 
         # 6. Sleep
         sleep_icon = "🟢" if w_sleep >= 70 else "🟡" if w_sleep >= 50 else ("🔴" if w_sleep > 0 else "🟣")
