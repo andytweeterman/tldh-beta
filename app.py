@@ -43,7 +43,6 @@ if "whoop_token" not in st.session_state:
     st.session_state.whoop_token = whoop.get_valid_access_token()
 
 if "code" in st.query_params:
-    # Catch the Whoop redirect immediately before anything else stops the script
     try:
         token_data = whoop.get_access_token(st.query_params["code"])
         if token_data and "access_token" in token_data:
@@ -51,7 +50,7 @@ if "code" in st.query_params:
             whoop.save_tokens(token_data)
         st.query_params.clear()
     except Exception as e:
-        pass # Silently fail if code is invalid, continue to app
+        pass 
 
 # -----------------------------------------------------------------------------
 # 1.5 THE VELVET ROPE (IP PROTECTION GATE)
@@ -145,7 +144,6 @@ def calculate_tir(df):
     return round((in_range / len(df)) * 100, 1)
 
 def get_ai_chart_summary(chart_title, time_window, metrics_str, context_str):
-    """Generates a quick AI synthesis for dynamic charts."""
     sys_prompt = f"""You are an elite metabolic data analyst.
     Summarize this {time_window} chart data for {chart_title}.
     Metrics: {metrics_str}
@@ -224,7 +222,6 @@ def get_cached_health_data(url, token):
 def get_cached_glycemic_risk(df, context, whoop_data=None, meeting_count=0, speaker_mode=False, owm_api_key="", is_real_data=False):
     return logic.calc_glycemic_risk(df, context, whoop_data, meeting_count, speaker_mode, owm_api_key, is_real_data)
 
-# --- LINTER FIX: Initialize variables to resolve "unbound" warnings ---
 w_rec = w_sleep = w_hrv = w_rhr = 0
 w_strain = 0.0
 meeting_count = 0
@@ -357,17 +354,14 @@ text_input = ""
 food_image = None
 
 with st.container(border=True):
-    hc1, hc2, hc3, hc4, hc5 = st.columns([3.0, 1.8, 1.8, 1.8, 1.6])
+    # Adjusted column widths to give the drivers slightly more breathing room
+    hc1, hc2, hc3, hc4, hc5 = st.columns([4.0, 1.5, 1.5, 1.5, 1.5])
     
     with hc1:
         st.markdown("<p style='font-weight: 800; color: var(--text-secondary); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 1px; margin-top: 5px; margin-bottom: 12px;'>⚡ Total Life Drivers</p>", unsafe_allow_html=True)
         vectors = []
         
-        if st.session_state.current_context != "Normal":
-            rem = get_time_remaining(st.session_state.context_end_time)
-            icon = {"Stressed": "🧘‍♂️", "Exercise": "🏃‍♂️", "Recovery": "🔋", "Sick": "🤒", "Project": "🧠", "Travel": "✈️"}.get(st.session_state.current_context, "🟣")
-            vectors.append(f"{icon} {st.session_state.current_context} ({rem})")
-
+        # 1. TIR
         tir_df = full_data.tail(36)
         if len(tir_df) > 0:
             low, tgt, elev, high = [len(tir_df[cond])/len(tir_df)*100 for cond in [tir_df['Glucose_Value'] < 80, (tir_df['Glucose_Value'] >= 80) & (tir_df['Glucose_Value'] <= 140), (tir_df['Glucose_Value'] > 140) & (tir_df['Glucose_Value'] <= 180), tir_df['Glucose_Value'] > 180]]
@@ -375,13 +369,47 @@ with st.container(border=True):
             elif high > 15: vectors.append(f"🔴 {int(high)}% BG High (3h)")
             elif elev > 25: vectors.append(f"🟡 {int(elev)}% BG Elevated (3h)")
             else: vectors.append(f"🟢 {int(tgt)}% BG On Target (3h)")
+        else:
+            vectors.append("🟣 No CGM Data")
 
-        for p in raw_reason.split("|"):
-            clean = re.sub(r'Hyperglycemic risk detected\.?|Hypoglycemic risk detected\.?|Compounded Strain Detected\!|System nominal\.?', '', p).replace('()', '').replace('(', '').replace(')', '').strip()
-            if clean: vectors.append(html.escape(clean))
+        # 2. Recovery
+        rec_icon = "🟢" if w_rec >= 67 else "🟡" if w_rec >= 34 else ("🔴" if w_rec > 0 else "🟣")
+        vectors.append(f"{rec_icon} {w_rec}% Recovery" if w_rec > 0 else "🟣 No Recovery Data")
         
-        tags_html = "".join([styles.get_driver_pill_html(t) for t in (vectors[:4] if vectors else ["🟢 All Systems Nominal"])])
-        st.markdown(f"<div style='display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 25px;'>{tags_html}</div>", unsafe_allow_html=True)
+        # 3. Strain
+        strain_icon = "🔴" if w_strain >= 14 else "🟡" if w_strain >= 10 else ("🟢" if w_strain > 0 else "🟣")
+        vectors.append(f"{strain_icon} {w_strain} Strain" if w_strain > 0 else "🟣 No Strain Data")
+
+        # 4. Mood / Context
+        mood_str = "Elevated" if st.session_state.current_context == "Normal" else st.session_state.current_context
+        vectors.append(f"🧠 Mood: {mood_str}")
+        
+        # 5. Hydration
+        hydro_icon = "🟢" if st.session_state.hydration_oz >= 64 else "🟡" if st.session_state.hydration_oz >= 32 else "🔴"
+        vectors.append(f"{hydro_icon} {st.session_state.hydration_oz}oz Hydration")
+
+        # 6. Sleep
+        sleep_icon = "🟢" if w_sleep >= 70 else "🟡" if w_sleep >= 50 else ("🔴" if w_sleep > 0 else "🟣")
+        vectors.append(f"{sleep_icon} {w_sleep}% Sleep Perf" if w_sleep > 0 else "🟣 No Sleep Data")
+
+        # 7. Calendar
+        cal_icon = "🟢" if meeting_count < 3 else "🟡" if meeting_count < 5 else "🔴"
+        cal_load = "Light" if meeting_count < 3 else "Mod" if meeting_count < 5 else "Heavy"
+        vectors.append(f"{cal_icon} {meeting_count} Meetings ({cal_load})")
+
+        # 8. Weather
+        weather_str = "☁️ Weather Nominal"
+        for p in raw_reason.split("|"):
+            if "Weather" in p or "Clear" in p or "Cloud" in p or "Rain" in p:
+                clean = re.sub(r'System nominal\.?', '', p).replace('()', '').strip()
+                if clean:
+                    weather_str = f"☁️ {clean}"
+                    break
+        vectors.append(weather_str)
+        
+        # Output the 8 pills in a clean, wrapping flexbox layout
+        tags_html = "".join([styles.get_driver_pill_html(t) for t in vectors])
+        st.markdown(f"<div style='display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 25px;'>{tags_html}</div>", unsafe_allow_html=True)
     
     with hc2:
         st.markdown("<div class='desktop-spacer' style='height: 28px;'></div>", unsafe_allow_html=True)
@@ -717,17 +745,8 @@ else:
         st.info(f"**🔭 Macro Trend Highlight:** {st.session_state.latest_trend_insight}")
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # BETA 2.8: LIVE BIOLOGICAL DRIVERS
-        st.markdown("<h5 style='margin-top: 5px;'>⚙️ Live Biological Drivers</h5>", unsafe_allow_html=True)
-        d1, d2, d3, d4 = st.columns(4)
-        with d1: st.markdown("<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Mood / Valence</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>🧠 Elevated</div></div>", unsafe_allow_html=True)
-        with d2: st.markdown(f"<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Hydration</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>💧 {st.session_state.hydration_oz} oz</div></div>", unsafe_allow_html=True)
-        with d3: st.markdown(f"<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Whoop Recovery</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>🔋 {w_rec}%</div></div>", unsafe_allow_html=True)
-        with d4: st.markdown(f"<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Sleep Debt</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>🛌 {w_sleep}%</div></div>", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        
         c1, c2, c3, c4 = st.columns(4)
-        delta = int(latest_bg['Glucose_Value'] - full_data.iloc[-2]['Glucose_Value'])
+        delta = int(latest_bg['Glucose_Value'] - full_data.iloc[-2]['Glucose_Value']) if len(full_data) > 1 else 0
         delta_str = f"+{delta}" if delta >= 0 else f"{delta}"
         c1.metric("🩸 Blood Sugar", f"{int(latest_bg['Glucose_Value'])} mg/dL", f"{delta_str} ({latest_bg['Trend']})")
         
