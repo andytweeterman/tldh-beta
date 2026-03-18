@@ -10,12 +10,14 @@ import whoop
 import hashlib
 import base64
 import re
+import os
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import calendar_sync
 from audio_recorder_streamlit import audio_recorder
 from openai import OpenAI
+from PIL import Image
 import tempfile
 
 # =============================================================================
@@ -30,11 +32,26 @@ ALL ACTION DIRECTIVES MUST BE STRICTLY BEHAVIORAL (E.G., WALKING, RESTING) OR NU
 """
 
 # -----------------------------------------------------------------------------
-# 1. SETUP & PAGE CONFIG
+# 1. SETUP & PAGE CONFIG (BETA 3.0)
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="TLDH Beta 2.9", page_icon="🌙", layout="wide", initial_sidebar_state="collapsed")
+page_icon_img = "🌙"
+if os.path.exists("logo.jpg"):
+    try:
+        page_icon_img = Image.open("logo.jpg")
+    except: pass
+
+st.set_page_config(page_title="TLDH Beta 3.0", page_icon=page_icon_img, layout="wide", initial_sidebar_state="collapsed")
 styles.apply_theme()
 styles.inject_custom_css()
+
+def get_logo_html():
+    if os.path.exists("logo.jpg"):
+        try:
+            with open("logo.jpg", "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+                return f'<img src="data:image/jpeg;base64,{b64}" style="height: 48px; margin-right: 15px; vertical-align: middle; border-radius: 8px;">'
+        except: pass
+    return ''
 
 # -----------------------------------------------------------------------------
 # 1.1 OAUTH CATCHER (MUST BE BEFORE VELVET ROPE)
@@ -60,7 +77,7 @@ if "authenticated" not in st.session_state:
 
 if not st.session_state.authenticated:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
-    st.markdown("<h1 style='text-align: center; color: #8B5CF6; font-size: 3rem;'>🔒 TLDH Beta</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center; color: #8B5CF6; font-size: 3rem;'>{get_logo_html()} TLDH Beta 3.0</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: var(--text-secondary); font-size: 1.2rem; margin-bottom: 30px;'>Agentic Engine IP is currently locked. Authorized access only.</p>", unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns([1, 1.5, 1])
@@ -187,6 +204,8 @@ if "favorite_meals" not in st.session_state: st.session_state.favorite_meals = [
 if "daily_briefing" not in st.session_state: st.session_state.daily_briefing = None
 if "wellness_advice" not in st.session_state: st.session_state.wellness_advice = None
 if "weekly_pattern" not in st.session_state: st.session_state.weekly_pattern = None
+if "schedule_action_plan" not in st.session_state: st.session_state.schedule_action_plan = None
+if "sleep_insight" not in st.session_state: st.session_state.sleep_insight = None
 
 if st.session_state._toast:
     st.toast(st.session_state._toast)
@@ -280,10 +299,13 @@ context_memory_string = " | ".join(active_memory_list) if active_memory_list els
 # -----------------------------------------------------------------------------
 st.markdown(f"""
     <div style="margin-top: 10px; margin-bottom: 25px; padding: 24px 30px; background: linear-gradient(135deg, rgba(139,92,246,0.08), rgba(109,40,217,0.03)); border: 1px solid rgba(139,92,246,0.2); border-radius: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.04);">
-        <div style="font-size: 34px; font-weight: 900; background: linear-gradient(135deg, #8B5CF6, #6D28D9); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.5px; line-height: 1.2;">
-            Total Life Download Hub
+        <div style="display: flex; align-items: center; margin-bottom: 4px;">
+            {get_logo_html()}
+            <div style="font-size: 34px; font-weight: 900; background: linear-gradient(135deg, #8B5CF6, #6D28D9); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.5px; line-height: 1.2;">
+                Total Life Download Hub
+            </div>
         </div>
-        <div style="color: var(--text-secondary); font-weight: 600; font-size: 1.15rem; margin-top: 4px; letter-spacing: 0.5px;">Agentic Risk Management Engine</div>
+        <div style="color: var(--text-secondary); font-weight: 600; font-size: 1.15rem; letter-spacing: 0.5px;">Agentic Risk Management Engine</div>
     </div>
 """, unsafe_allow_html=True)
 
@@ -291,7 +313,7 @@ if st.session_state.current_context == "Normal":
     auto_mode, auto_dur, auto_reason = None, 0, ""
     
     if w_strain > 14.0 and latest_bg['Trend'] in ["Falling", "Falling Fast"]:
-        auto_mode, auto_dur, auto_reason = "Recovery", 2, "High Whoop strain detected with dropping glucose (Post-Workout)."
+        auto_mode, auto_dur, auto_reason = "Recovery", 2, "High Whoop strain detected with dropping glucose."
     elif w_strain > 14.0:
         auto_mode, auto_dur, auto_reason = "Exercise", 2, "High systemic strain detected via Whoop."
         
@@ -330,7 +352,7 @@ for p in raw_reason.split("|"):
 cal_icon = "🟢" if meeting_count < 3 else "🟡" if meeting_count < 5 else "🔴"
 cal_load = "Light" if meeting_count < 3 else "Mod" if meeting_count < 5 else "Heavy"
 
-# MAIN ACTION BUTTONS (4 Columns - Cleaned up to save vertical space)
+# MAIN ACTION BUTTONS (4 Columns)
 with st.container(border=True):
     btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
     
@@ -930,8 +952,22 @@ else:
 
     # ---------------- BETA UI: SCHEDULE (CALENDAR INTEGRATION) ----------------
     elif st.session_state.active_view == "Schedule":
-        st.markdown("### 📅 Schedule & Cognitive Load")
         
+        if st.button("🧠 Synthesize Action Plan", type="primary", use_container_width=True):
+            with st.spinner("Generating meeting preparation strategy..."):
+                try:
+                    sys_prompt = f"""You are an elite holistic wellness and metabolic coach. The user has {meeting_count} meetings today and a current glucose of {int(latest_bg['Glucose_Value'])} mg/dL.
+                    Return a 2-3 sentence actionable plan on how to prepare for these meetings to maintain stable glucose and low stress (e.g., bring sugar/snacks, stay hydrated, stretch, or take a walk). Speak directly to the user as 'you'."""
+                    plan_data = ask_claude(sys_prompt, [{"role": "user", "content": "Generate my meeting action plan."}], parse_json=False)
+                    st.session_state.schedule_action_plan = plan_data
+                except Exception as e:
+                    st.error(f"Synthesis failed: {e}")
+                    
+        if st.session_state.get("schedule_action_plan"):
+            st.success(f"**🎯 Action Plan:** {st.session_state.schedule_action_plan}")
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+        st.markdown("### 📅 Schedule & Cognitive Load")
         st.info(f"**Agentic Insight:** The Risk Engine is factoring in **{meeting_count} meetings** to adjust glycemic sensitivity.")
         
         # Native Streamlit containers to fix cross-theme visibility issues
@@ -965,24 +1001,28 @@ else:
     elif st.session_state.active_view == "Sleep":
         st.markdown("### 🌙 Sleep & Recovery Correlation")
         
-        st.markdown("##### 🌙 Overnight Blood Sugar")
-        render_dynamic_cgm_chart(full_data, "sleep")
-        st.markdown("<br>", unsafe_allow_html=True)
-        
         if st.session_state.whoop_token and whoop_metrics:
             sleep_perf = whoop_metrics.get('score', {}).get('sleep_performance_percentage', 85)
             overnight_df = full_data.tail(96)
             raw_std = overnight_df['Glucose_Value'].std()
             safe_std = int(raw_std) if pd.notna(raw_std) else 0
 
-            with st.spinner("Synthesizing Sleep Impact..."):
-                metrics_str = f"Avg: {int(overnight_df['Glucose_Value'].mean())}, Min: {int(overnight_df['Glucose_Value'].min())}, Max: {int(overnight_df['Glucose_Value'].max())}, Std Dev: {safe_std}"
-                st.success(f"**🤖 Agentic Insight:** {get_ai_chart_summary(f'Overnight Glucose (with {sleep_perf}% Sleep Performance)', '12h', metrics_str, context_memory_string)}")
+            if st.button("🧠 Synthesize Sleep Analysis", type="primary", use_container_width=True):
+                with st.spinner("Synthesizing Sleep Impact..."):
+                    metrics_str = f"Avg: {int(overnight_df['Glucose_Value'].mean())}, Min: {int(overnight_df['Glucose_Value'].min())}, Max: {int(overnight_df['Glucose_Value'].max())}, Std Dev: {safe_std}"
+                    st.session_state.sleep_insight = get_ai_chart_summary(f'Overnight Glucose (with {sleep_perf}% Sleep Performance)', '12h', metrics_str, context_memory_string)
             
+            if st.session_state.get("sleep_insight"):
+                st.success(f"**🤖 Agentic Insight:** {st.session_state.sleep_insight}")
+                
             s_col1, s_col2 = st.columns(2)
             with s_col1: st.metric("Sleep Performance", f"{sleep_perf}%", delta="Restorative" if sleep_perf > 80 else "Deficit", delta_color="normal" if sleep_perf > 80 else "inverse")
             with s_col2: st.metric("Overnight Volatility", f"±{safe_std} mg/dL", delta="Stable" if safe_std < 15 else "Erratic", delta_color="normal" if safe_std < 15 else "inverse")
         else:
             st.info("🔗 Open the ☰ MENU above to connect Whoop and enable Sleep Impact correlation.")
+            
+        st.markdown("---")
+        st.markdown("##### 🌙 Overnight Blood Sugar")
+        render_dynamic_cgm_chart(full_data, "sleep")
 
 st.markdown(styles.FOOTER_HTML, unsafe_allow_html=True)
