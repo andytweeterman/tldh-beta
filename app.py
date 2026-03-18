@@ -902,18 +902,20 @@ else:
 
     # ---------------- BETA UI: DUAL-VECTOR RECOVERY ----------------
     elif st.session_state.active_view == "Recovery":
+        
         if st.button("🧠 Synthesize Wellness Advice", type="primary", use_container_width=True):
             with st.spinner("Generating custom recovery protocols..."):
                 try:
                     sys_prompt = f"""You are an elite holistic wellness coach. Look at the user's data:
                     Whoop Strain: {w_strain}, Sleep: {w_sleep}%, Hydration: {st.session_state.hydration_oz}oz.
-                    Return ONLY a JSON object with:
-                    - "short_term": "One sentence of actionable advice to implement TODAY."
-                    - "long_term": "One sentence of strategic advice to build resilience THIS WEEK." """
+                    Return STRICTLY a valid JSON object with EXACTLY these two keys: "short_term" and "long_term". 
+                    Do not include any markdown formatting, backticks, or conversational text.
+                    Example format: {{"short_term": "actionable advice today.", "long_term": "strategic advice this week."}}"""
+                    
                     adv_data = ask_claude(sys_prompt, [{"role": "user", "content": "Give me wellness advice."}])
                     st.session_state.wellness_advice = adv_data
                 except Exception as e:
-                    st.error(f"Synthesis failed: {e}")
+                    st.error(f"Synthesis failed: {e}")  
                     
         if st.session_state.wellness_advice:
             st.info(f"**🎯 Today's Focus:** {st.session_state.wellness_advice.get('short_term', '')}")
@@ -964,7 +966,8 @@ else:
                     st.error(f"Synthesis failed: {e}")
                     
         if st.session_state.get("schedule_action_plan"):
-            st.success(f"**🎯 Action Plan:** {st.session_state.schedule_action_plan}")
+            # Added \n\n so the AI's markdown headers render beautifully
+            st.success(f"**🎯 Action Plan:**\n\n{st.session_state.schedule_action_plan}")
             st.markdown("<br>", unsafe_allow_html=True)
             
         st.markdown("### 📅 Schedule & Cognitive Load")
