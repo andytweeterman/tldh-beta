@@ -32,9 +32,26 @@ ALL ACTION DIRECTIVES MUST BE STRICTLY BEHAVIORAL (E.G., WALKING, RESTING) OR NU
 # -----------------------------------------------------------------------------
 # 1. SETUP & PAGE CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="TLDH Beta 1.0", page_icon="🌙", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="TLDH Beta 2.9", page_icon="🌙", layout="wide", initial_sidebar_state="collapsed")
 styles.apply_theme()
 styles.inject_custom_css()
+
+# -----------------------------------------------------------------------------
+# 1.1 OAUTH CATCHER (MUST BE BEFORE VELVET ROPE)
+# -----------------------------------------------------------------------------
+if "whoop_token" not in st.session_state: 
+    st.session_state.whoop_token = whoop.get_valid_access_token()
+
+if "code" in st.query_params:
+    # Catch the Whoop redirect immediately before anything else stops the script
+    try:
+        token_data = whoop.get_access_token(st.query_params["code"])
+        if token_data and "access_token" in token_data:
+            st.session_state.whoop_token = token_data["access_token"]
+            whoop.save_tokens(token_data)
+        st.query_params.clear()
+    except Exception as e:
+        pass # Silently fail if code is invalid, continue to app
 
 # -----------------------------------------------------------------------------
 # 1.5 THE VELVET ROPE (IP PROTECTION GATE)
@@ -159,7 +176,6 @@ if "current_context" not in st.session_state: st.session_state.current_context =
 if "context_end_time" not in st.session_state: st.session_state.context_end_time = None
 if "ns_url" not in st.session_state: st.session_state.ns_url = ns_cfg.get("url", "")
 if "ns_token" not in st.session_state: st.session_state.ns_token = ns_cfg.get("token", "")
-if "whoop_token" not in st.session_state: st.session_state.whoop_token = whoop.get_valid_access_token()
 if "camera_active" not in st.session_state: st.session_state.camera_active = False
 if "mic_active" not in st.session_state: st.session_state.mic_active = False
 if "event_log" not in st.session_state: st.session_state.event_log = []
@@ -169,6 +185,7 @@ if "active_view" not in st.session_state: st.session_state.active_view = "Home"
 if "latest_trend_insight" not in st.session_state: st.session_state.latest_trend_insight = "No macro trend synthesized yet. Run an analysis in the Trends tab."
 if "show_dossier" not in st.session_state: st.session_state.show_dossier = False
 if "smart_nudge_dismissed" not in st.session_state: st.session_state.smart_nudge_dismissed = False
+if "hydration_oz" not in st.session_state: st.session_state.hydration_oz = 24
 
 if st.session_state._toast:
     st.toast(st.session_state._toast)
@@ -195,14 +212,6 @@ if st.session_state.context_end_time and datetime.now() > st.session_state.conte
         log_event("📍 Mode Shift", "Context timer expired. Returned to Normal.")
         st.session_state._toast = "🟢 Context timer expired. Returned to Normal."
         st.rerun() 
-
-if "code" in st.query_params and not st.session_state.whoop_token:
-    with st.spinner("Authenticating Integrations..."):
-        if st.query_params.get("state") == st.session_state.get("oauth_state"):
-            token_data = whoop.get_access_token(st.query_params["code"])
-            if token_data and "access_token" in token_data:
-                st.session_state.whoop_token = token_data["access_token"]
-                whoop.save_tokens(token_data); st.query_params.clear(); st.rerun()
 
 @st.cache_data(ttl=300)
 def get_cached_health_data(url, token):
@@ -262,7 +271,7 @@ if st.session_state.current_context in ["Exercise", "Recovery"]:
 elif w_strain > 12.0:
     active_memory_list.append(f"Notable daily Whoop strain recorded today: {w_strain}.")
 
-recent_journals = [e for e in st.session_state.event_log if e['type'] in ["🍽️ Meal", "💊 Medication", "🏃‍♂️ Exercise", "📝 Other"]]
+recent_journals = [e for e in st.session_state.event_log if e['type'] in ["🍽️ Meal", "💊 Medication", "🏃‍♂️ Exercise", "📝 Other", "🧬 Context Override"]]
 if recent_journals:
     latest_journal = recent_journals[-1]
     active_memory_list.append(f"Recent user journal entry ({latest_journal['type']}): {latest_journal['desc']}")
@@ -311,7 +320,7 @@ if st.session_state.current_context == "Normal":
     # BETA UI: Smart Agentic Nudge 
     elif meeting_count >= 4 and not st.session_state.smart_nudge_dismissed and st.session_state.active_view != "Recovery":
         st.markdown("""
-            <div class="agentic-nudge">
+            <div style="background: linear-gradient(to right, rgba(139, 92, 246, 0.15), rgba(109, 40, 217, 0.05)); border-left: 4px solid #8B5CF6; padding: 15px 20px; border-radius: 0 12px 12px 0; margin-bottom: 25px;">
                 <span style="font-weight: 800; color: #8B5CF6; font-size: 0.9rem; text-transform: uppercase;">⚡ Agentic Intercept</span><br>
                 <span style="font-size: 1.05rem; color: #FAFAFA;">High calendar density detected. To prevent afternoon cortisol-driven volatility, I recommend initiating the Dual-Vector Recovery protocol.</span>
             </div>
@@ -340,7 +349,7 @@ elif st.session_state.current_context == "Exercise":
                 st.session_state.muted_intercepts["Recovery"] = datetime.now() + timedelta(hours=2)
                 st.rerun()
 
-# --- LINTER FIX: Initialize UI event variables to remove locals() warnings ---
+# --- LINTER FIX: Initialize UI event variables ---
 db_search_submit = False
 db_search_query = ""
 text_submit = False
@@ -443,15 +452,26 @@ with st.container(border=True):
     with hc4:
         st.markdown("<div class='desktop-spacer' style='height: 28px;'></div>", unsafe_allow_html=True)
         with st.popover("📓 Journal", use_container_width=True):
-            st.caption("Log a daily event, meal, or brain dump.")
+            st.caption("Log events or tag biological context drivers.")
             with st.form("manual_event_form", clear_on_submit=True):
+                st.markdown("<span style='font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);'>BIOLOGICAL OVERRIDES (Beta 2.8)</span>", unsafe_allow_html=True)
+                context_tags = st.multiselect(
+                    "Select active strain drivers to instantly adjust AI baseline predictions:",
+                    ["Menstrual Cycle (Luteal/High Resistance)", "Menstrual Cycle (Onset/High Sensitivity)", "Fighting Illness", "Travel/Jet Lag", "Muscle Soreness (DOMS)"],
+                    placeholder="No active systemic overrides...", label_visibility="collapsed"
+                )
+                
+                st.markdown("<br><span style='font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);'>STANDARD LOG</span>", unsafe_allow_html=True)
                 ev_type = st.selectbox("Type", ["🍽️ Meal", "💊 Medication", "🏃‍♂️ Exercise", "📝 Other"], label_visibility="collapsed")
-                ev_desc = st.text_area("Context", placeholder="E.g., I had a cookie at lunch, it had a lot more carbs than I was expecting...", height=100)
+                ev_desc = st.text_area("Context", placeholder="E.g., I had a cookie at lunch...", height=80)
                 if st.form_submit_button("Log Entry", use_container_width=True):
+                    if context_tags:
+                        log_event("🧬 Context Override", ", ".join(context_tags))
+                        st.session_state._toast = f"🧬 System Adjusted for: {', '.join(context_tags)}"
                     if ev_desc:
                         log_event(ev_type, ev_desc)
                         st.session_state._toast = f"✅ {ev_type.split(' ')[1]} logged to memory!"
-                        st.rerun()
+                    st.rerun()
                         
     with hc5:
         st.markdown("<div class='desktop-spacer' style='height: 28px;'></div>", unsafe_allow_html=True)
@@ -501,7 +521,7 @@ with st.container(border=True):
             if not st.session_state.whoop_token:
                 oauth_state = secrets.token_urlsafe(16)
                 st.components.v1.html(f"<script>window.parent.document.cookie = 'whoop_oauth_state={oauth_state}; path=/; max-age=3600; SameSite=Lax';</script>", height=0)
-                st.link_button("🔗 Connect Whoop", whoop.get_authorization_url(oauth_state), use_container_width=True)
+                st.link_button("Connect", whoop.get_authorization_url(oauth_state), use_container_width=True)
             else:
                 if whoop_metrics: st.success("🟢 Connected & Syncing")
                 else: st.error("🔴 Data Sync Failed (Cached)")
@@ -697,6 +717,15 @@ else:
         st.info(f"**🔭 Macro Trend Highlight:** {st.session_state.latest_trend_insight}")
         st.markdown("<br>", unsafe_allow_html=True)
         
+        # BETA 2.8: LIVE BIOLOGICAL DRIVERS
+        st.markdown("<h5 style='margin-top: 5px;'>⚙️ Live Biological Drivers</h5>", unsafe_allow_html=True)
+        d1, d2, d3, d4 = st.columns(4)
+        with d1: st.markdown("<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Mood / Valence</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>🧠 Elevated</div></div>", unsafe_allow_html=True)
+        with d2: st.markdown(f"<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Hydration</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>💧 {st.session_state.hydration_oz} oz</div></div>", unsafe_allow_html=True)
+        with d3: st.markdown(f"<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Whoop Recovery</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>🔋 {w_rec}%</div></div>", unsafe_allow_html=True)
+        with d4: st.markdown(f"<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Sleep Debt</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>🛌 {w_sleep}%</div></div>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        
         c1, c2, c3, c4 = st.columns(4)
         delta = int(latest_bg['Glucose_Value'] - full_data.iloc[-2]['Glucose_Value'])
         delta_str = f"+{delta}" if delta >= 0 else f"{delta}"
@@ -771,15 +800,15 @@ else:
         tir_val = calculate_tir(full_data)
         gly_var = int(full_data['Glucose_Value'].std())
         
-        ic1.markdown(f"<div class='metric-card'><div class='metric-label'>Estimated A1C (GMI)</div><div class='metric-value'>{gmi_val}%</div><div style='color:#A6DA95;font-size:0.8rem;'>Based on trailing data</div></div>", unsafe_allow_html=True)
-        ic2.markdown(f"<div class='metric-card'><div class='metric-label'>Time-In-Range (70-180)</div><div class='metric-value'>{tir_val}%</div><div style='color:#A6DA95;font-size:0.8rem;'>Target: > 70%</div></div>", unsafe_allow_html=True)
-        ic3.markdown(f"<div class='metric-card'><div class='metric-label'>Glycemic Variability</div><div class='metric-value'>±{gly_var} mg/dL</div><div style='color:var(--text-secondary);font-size:0.8rem;'>Standard Deviation</div></div>", unsafe_allow_html=True)
+        ic1.markdown(f"<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Estimated A1C (GMI)</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>{gmi_val}%</div><div style='color:#A6DA95;font-size:0.8rem;'>Based on trailing data</div></div>", unsafe_allow_html=True)
+        ic2.markdown(f"<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Time-In-Range (70-180)</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>{tir_val}%</div><div style='color:#A6DA95;font-size:0.8rem;'>Target: > 70%</div></div>", unsafe_allow_html=True)
+        ic3.markdown(f"<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Glycemic Variability</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>±{gly_var} mg/dL</div><div style='color:var(--text-secondary);font-size:0.8rem;'>Standard Deviation</div></div>", unsafe_allow_html=True)
 
         st.markdown("<h5 style='color: var(--text-secondary); margin-top: 20px;'>BEHAVIORAL RISK METRICS</h5>", unsafe_allow_html=True)
         pc1, pc2, pc3 = st.columns(3)
-        pc1.markdown("<div class='metric-card'><div class='metric-label'>Cortisol Spikes Averted</div><div class='metric-value'>14</div><div style='color:#8B5CF6;font-size:0.8rem;'>Via Active Recovery Intercepts</div></div>", unsafe_allow_html=True)
-        pc2.markdown(f"<div class='metric-card'><div class='metric-label'>Current Bio-Strain</div><div class='metric-value'>{w_strain} / 21</div><div style='color:var(--text-secondary);font-size:0.8rem;'>Synced from Whoop</div></div>", unsafe_allow_html=True)
-        pc3.markdown("<div class='metric-card'><div class='metric-label'>Recovery Adherence</div><div class='metric-value'>82%</div><div style='color:#A6DA95;font-size:0.8rem;'>High engagement with protocols</div></div>", unsafe_allow_html=True)
+        pc1.markdown("<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Cortisol Spikes Averted</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>14</div><div style='color:#8B5CF6;font-size:0.8rem;'>Via Active Recovery Intercepts</div></div>", unsafe_allow_html=True)
+        pc2.markdown(f"<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Current Bio-Strain</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>{w_strain} / 21</div><div style='color:var(--text-secondary);font-size:0.8rem;'>Synced from Whoop</div></div>", unsafe_allow_html=True)
+        pc3.markdown("<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>Recovery Adherence</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>82%</div><div style='color:#A6DA95;font-size:0.8rem;'>High engagement with protocols</div></div>", unsafe_allow_html=True)
 
     # ---------------- BETA UI: DUAL-VECTOR RECOVERY ----------------
     elif st.session_state.active_view == "Recovery":
@@ -789,11 +818,11 @@ else:
         st.markdown("#### Vector 1: Internal Reset (Parasympathetic)")
         r1, r2 = st.columns(2)
         with r1:
-            st.markdown("<div class='recovery-box'><strong>🧘‍♂️ Box Breathing (2 Min)</strong><br><span style='font-size:0.85rem;'>Rapid acute stress mitigation.</span></div>", unsafe_allow_html=True)
+            st.markdown("<div style='border: 1px solid rgba(139, 92, 246, 0.3); padding: 15px; border-radius: 12px; margin-bottom: 10px; background: rgba(139, 92, 246, 0.05); text-align: center;'><strong>🧘‍♂️ Box Breathing (2 Min)</strong><br><span style='font-size:0.85rem;'>Rapid acute stress mitigation.</span></div>", unsafe_allow_html=True)
             if st.button("Log Breathing", use_container_width=True): 
                 log_event("🧘‍♂️ Recovery", "2 Min Box Breathing"); st.session_state._toast = "✅ Nervous system down-regulating."; st.rerun()
         with r2:
-            st.markdown("<div class='recovery-box'><strong>🕉️ Transcendental Meditation (20 Min)</strong><br><span style='font-size:0.85rem;'>Deep baseline physiological rest.</span></div>", unsafe_allow_html=True)
+            st.markdown("<div style='border: 1px solid rgba(139, 92, 246, 0.3); padding: 15px; border-radius: 12px; margin-bottom: 10px; background: rgba(139, 92, 246, 0.05); text-align: center;'><strong>🕉️ Transcendental Meditation (20 Min)</strong><br><span style='font-size:0.85rem;'>Deep baseline physiological rest.</span></div>", unsafe_allow_html=True)
             if st.button("Log TM Session", use_container_width=True, type="primary"): 
                 log_event("🕉️ Recovery", "20 Min TM Session"); st.session_state._toast = "🕰️ Deep physiological rest initiated."; st.rerun()
 
@@ -801,12 +830,13 @@ else:
         st.markdown("#### Vector 2: External Reset (Contextual)")
         r3, r4 = st.columns(2)
         with r3:
-            st.markdown("<div class='recovery-box'><strong>🎧 Contextual Realignment</strong><br><span style='font-size:0.85rem;'>Sensory pattern interruption (Audio/Location shift).</span></div>", unsafe_allow_html=True)
+            st.markdown("<div style='border: 1px solid rgba(139, 92, 246, 0.3); padding: 15px; border-radius: 12px; margin-bottom: 10px; background: rgba(139, 92, 246, 0.05); text-align: center;'><strong>🎧 Contextual Realignment</strong><br><span style='font-size:0.85rem;'>Sensory pattern interruption (Audio/Location shift).</span></div>", unsafe_allow_html=True)
             if st.button("Log Sensory Shift", use_container_width=True): 
                 log_event("🎧 Recovery", "Contextual Shift"); st.session_state._toast = "🧠 Cognitive loop broken."; st.rerun()
         with r4:
-            st.markdown("<div class='recovery-box'><strong>💧 Hydration Intercept</strong><br><span style='font-size:0.85rem;'>Flush excess glucose; reduce resistance.</span></div>", unsafe_allow_html=True)
+            st.markdown("<div style='border: 1px solid rgba(139, 92, 246, 0.3); padding: 15px; border-radius: 12px; margin-bottom: 10px; background: rgba(139, 92, 246, 0.05); text-align: center;'><strong>💧 Hydration Intercept</strong><br><span style='font-size:0.85rem;'>Flush excess glucose; reduce resistance.</span></div>", unsafe_allow_html=True)
             if st.button("Log 16oz Water", use_container_width=True): 
+                st.session_state.hydration_oz += 16
                 log_event("💧 Recovery", "16oz Hydration"); st.session_state._toast = "✅ Hydration logged."; st.rerun()
 
     elif st.session_state.active_view == "Trends":
@@ -862,13 +892,13 @@ else:
         sc1, sc2, sc3, sc4 = st.columns(4)
         
         with sc1:
-            st.markdown("<div class='metric-card' style='text-align: center;'><div class='metric-label'>1 HOUR</div><div class='metric-value'>🟢 SAFE</div></div>", unsafe_allow_html=True)
+            st.markdown("<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>1 HOUR</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>🟢 SAFE</div></div>", unsafe_allow_html=True)
         with sc2:
-            st.markdown("<div class='metric-card' style='text-align: center;'><div class='metric-label'>4 HOURS</div><div class='metric-value'>🟢 CLEAR</div></div>", unsafe_allow_html=True)
+            st.markdown("<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>4 HOURS</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>🟢 CLEAR</div></div>", unsafe_allow_html=True)
         with sc3:
-            st.markdown("<div class='metric-card' style='text-align: center;'><div class='metric-label'>24 HOURS</div><div class='metric-value'>🟢 GOOD</div></div>", unsafe_allow_html=True)
+            st.markdown("<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>24 HOURS</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>🟢 GOOD</div></div>", unsafe_allow_html=True)
         with sc4:
-            st.markdown(f"<div class='metric-card' style='text-align: center;'><div class='metric-label'>MEETINGS</div><div class='metric-value'>{meeting_count} ({m_status})</div></div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background: var(--secondary-background-color); padding: 15px; border-radius: 12px; text-align: center;'><div style='font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;'>MEETINGS</div><div style='font-size: 1.5rem; font-weight: 800; color: #FAFAFA;'>{meeting_count} ({m_status})</div></div>", unsafe_allow_html=True)
             
         st.markdown("---")
         st.markdown("##### Upcoming Events")
