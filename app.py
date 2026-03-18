@@ -146,6 +146,9 @@ def get_claude_tone():
 
 def get_time_remaining(end_time):
     if not end_time: return ""
+    if isinstance(end_time, str):
+        try: end_time = datetime.fromisoformat(end_time)
+        except: return ""
     diff = end_time - datetime.now()
     if diff.total_seconds() <= 0: return ""
     mins = int(diff.total_seconds() / 60)
@@ -172,7 +175,7 @@ def get_ai_chart_summary(chart_title, time_window, metrics_str, context_str):
         return f"Analysis unavailable: {e}"
 
 # -----------------------------------------------------------------------------
-# 3. STATE, TIMERS & EVENT LOGGING
+# 3. STATE, PERSISTENCE WORKAROUND, TIMERS & EVENT LOGGING
 # -----------------------------------------------------------------------------
 def load_ns_config():
     try:
@@ -184,23 +187,52 @@ def save_ns_config(url, token):
         with open("ns_config.json", "w") as f: json.dump({"url": url, "token": token}, f)
     except: pass
 
-ns_cfg = load_ns_config()
+# --- STREAMLIT PERSISTENT MEMORY WORKAROUND ---
+STATE_FILE = "tldh_state.json"
 
-# Initialization
-if "current_context" not in st.session_state: st.session_state.current_context = "Normal"
-if "context_end_time" not in st.session_state: st.session_state.context_end_time = None
+def load_local_state():
+    try:
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE, "r") as f:
+                return json.load(f)
+    except Exception: pass
+    return {}
+
+def save_local_state():
+    state_dict = {
+        "hydration_oz": st.session_state.get("hydration_oz", 0),
+        "event_log": st.session_state.get("event_log", []),
+        "favorite_meals": st.session_state.get("favorite_meals", []),
+        "current_context": st.session_state.get("current_context", "Normal"),
+        "context_end_time": st.session_state.get("context_end_time").isoformat() if st.session_state.get("context_end_time") and isinstance(st.session_state.context_end_time, datetime) else None
+    }
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump(state_dict, f)
+    except Exception as e: print(f"State save failed: {e}")
+
+ns_cfg = load_ns_config()
+persisted_state = load_local_state()
+
+# Initialization with Persistence Injection
+if "current_context" not in st.session_state: st.session_state.current_context = persisted_state.get("current_context", "Normal")
+if "context_end_time" not in st.session_state: 
+    cached_time = persisted_state.get("context_end_time")
+    st.session_state.context_end_time = datetime.fromisoformat(cached_time) if cached_time else None
+
+if "hydration_oz" not in st.session_state: st.session_state.hydration_oz = persisted_state.get("hydration_oz", 0)
+if "event_log" not in st.session_state: st.session_state.event_log = persisted_state.get("event_log", [])
+if "favorite_meals" not in st.session_state: st.session_state.favorite_meals = persisted_state.get("favorite_meals", [])
+
 if "ns_url" not in st.session_state: st.session_state.ns_url = ns_cfg.get("url", "")
 if "ns_token" not in st.session_state: st.session_state.ns_token = ns_cfg.get("token", "")
 if "camera_active" not in st.session_state: st.session_state.camera_active = False
 if "mic_active" not in st.session_state: st.session_state.mic_active = False
-if "event_log" not in st.session_state: st.session_state.event_log = []
 if "muted_intercepts" not in st.session_state: st.session_state.muted_intercepts = {}
 if "_toast" not in st.session_state: st.session_state._toast = None
 if "active_view" not in st.session_state: st.session_state.active_view = "Home"
 if "show_dossier" not in st.session_state: st.session_state.show_dossier = False
 if "smart_nudge_dismissed" not in st.session_state: st.session_state.smart_nudge_dismissed = False
-if "hydration_oz" not in st.session_state: st.session_state.hydration_oz = 0
-if "favorite_meals" not in st.session_state: st.session_state.favorite_meals = []
 if "daily_briefing" not in st.session_state: st.session_state.daily_briefing = None
 if "wellness_advice" not in st.session_state: st.session_state.wellness_advice = None
 if "weekly_pattern" not in st.session_state: st.session_state.weekly_pattern = None
@@ -218,6 +250,7 @@ def log_event(event_type, description):
         "desc": description
     })
     st.session_state.event_log = st.session_state.event_log[-15:]
+    save_local_state()
 
 if st.session_state.context_end_time and datetime.now() > st.session_state.context_end_time:
     if st.session_state.current_context == "Exercise":
@@ -225,12 +258,14 @@ if st.session_state.context_end_time and datetime.now() > st.session_state.conte
         st.session_state.context_end_time = datetime.now() + timedelta(hours=2)
         log_event("📍 Mode Shift", "Auto-shifted from Exercise to Recovery")
         st.session_state._toast = "🔋 Exercise concluded. Recovery mode activated."
+        save_local_state()
         st.rerun() 
     else:
         st.session_state.current_context = "Normal"
         st.session_state.context_end_time = None
         log_event("📍 Mode Shift", "Context timer expired. Returned to Normal.")
         st.session_state._toast = "🟢 Context timer expired. Returned to Normal."
+        save_local_state()
         st.rerun() 
 
 @st.cache_data(ttl=300)
@@ -329,6 +364,7 @@ if st.session_state.current_context == "Normal":
             st.session_state.context_end_time = datetime.now() + timedelta(hours=auto_dur)
             log_event("📍 Mode Shift", f"Auto-shifted to {auto_mode} ({auto_reason})")
             st.session_state._toast = f"✅ Agentic shift to {auto_mode} active!"
+            save_local_state()
             st.rerun()
         if col2.button(f"❌ No, dismiss", key=f"no_{auto_mode}"):
             st.session_state.muted_intercepts[auto_mode] = datetime.now() + timedelta(hours=2)
@@ -504,6 +540,7 @@ with st.container(border=True):
                     st.session_state.context_end_time = datetime.now() + timedelta(hours=dur_val) if new_ctx != "Normal" else None
                     log_event("📍 Mode Shift", f"Manually set to {new_ctx} for {dur_val}h")
                     st.session_state._toast = f"✅ Context updated to {new_ctx}!"
+                    save_local_state()
                     st.rerun()
             
             st.divider()
@@ -651,6 +688,7 @@ if st.session_state.get("journal_history"):
             st.session_state.context_end_time = datetime.now() + timedelta(hours=s_dur)
             log_event("📍 Mode Shift", f"Applied {s_mode} via AI Suggestion")
             st.session_state._toast = f"✅ Context shifted to {s_mode}!"
+            save_local_state()
             st.session_state.journal_history = []
             st.rerun()
         if col2.button(f"❌ Dismiss", key="nlp_no"):
@@ -695,6 +733,7 @@ if st.session_state.get("latest_meal_analysis"):
     b1, b2, b3 = st.columns(3)
     if b1.button("⭐ Add to Favorites", use_container_width=True):
         st.session_state.favorite_meals.append(meal)
+        save_local_state()
         st.session_state._toast = "⭐ Meal saved to your Favorites!"
         st.session_state.latest_meal_analysis = None
         st.rerun()
@@ -902,7 +941,6 @@ else:
 
     # ---------------- BETA UI: DUAL-VECTOR RECOVERY ----------------
     elif st.session_state.active_view == "Recovery":
-        
         if st.button("🧠 Synthesize Wellness Advice", type="primary", use_container_width=True):
             with st.spinner("Generating custom recovery protocols..."):
                 try:
@@ -911,11 +949,10 @@ else:
                     Return STRICTLY a valid JSON object with EXACTLY these two keys: "short_term" and "long_term". 
                     Do not include any markdown formatting, backticks, or conversational text.
                     Example format: {{"short_term": "actionable advice today.", "long_term": "strategic advice this week."}}"""
-                    
                     adv_data = ask_claude(sys_prompt, [{"role": "user", "content": "Give me wellness advice."}])
                     st.session_state.wellness_advice = adv_data
                 except Exception as e:
-                    st.error(f"Synthesis failed: {e}")  
+                    st.error(f"Synthesis failed: {e}")
                     
         if st.session_state.wellness_advice:
             st.info(f"**🎯 Today's Focus:** {st.session_state.wellness_advice.get('short_term', '')}")
@@ -950,6 +987,7 @@ else:
                 st.markdown("<div style='text-align: center;'><strong>💧 Hydration Intercept</strong><br><span style='font-size:0.85rem; color: gray;'>Flush excess glucose; reduce resistance.</span></div><br>", unsafe_allow_html=True)
                 if st.button("Log 16oz Water", use_container_width=True): 
                     st.session_state.hydration_oz += 16
+                    save_local_state()
                     log_event("💧 Recovery", "16oz Hydration"); st.session_state._toast = "✅ Hydration logged."; st.rerun()
 
     # ---------------- BETA UI: SCHEDULE (CALENDAR INTEGRATION) ----------------
@@ -966,7 +1004,6 @@ else:
                     st.error(f"Synthesis failed: {e}")
                     
         if st.session_state.get("schedule_action_plan"):
-            # Added \n\n so the AI's markdown headers render beautifully
             st.success(f"**🎯 Action Plan:**\n\n{st.session_state.schedule_action_plan}")
             st.markdown("<br>", unsafe_allow_html=True)
             
