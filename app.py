@@ -118,9 +118,11 @@ with st.sidebar:
     st.markdown("### 🔕 Right to Latency")
     snooze_options = {"Active (No Snooze)": 0, "Mute for 1 Hour": 1, "Mute for 2 Hours": 2, "Mute for 4 Hours": 4}
 
-    # Store the active snooze selection to prevent extending the timer on every rerun
+    # FIX 1: Safely initialize the keys before UI execution
     if "snooze_selection" not in st.session_state:
         st.session_state.snooze_selection = "Active (No Snooze)"
+    if "latency_snooze_until" not in st.session_state:
+        st.session_state.latency_snooze_until = None
 
     selected_snooze = st.selectbox("Snooze AI Intercepts", options=list(snooze_options.keys()), index=list(snooze_options.keys()).index(st.session_state.snooze_selection))
 
@@ -129,14 +131,18 @@ with st.sidebar:
         if selected_snooze != "Active (No Snooze)":
             snooze_hours = snooze_options[selected_snooze]
             st.session_state.latency_snooze_until = datetime.now() + timedelta(hours=snooze_hours)
-            save_local_state()
-            st.rerun()
         else:
             st.session_state.latency_snooze_until = None
+        
+        # FIX 2: Null-safe save handler in case the UI triggers before functions load
+        try:
             save_local_state()
-            st.rerun()
+        except NameError:
+            pass
+        st.rerun()
 
-    if st.session_state.latency_snooze_until:
+    # FIX 3: Use .get() to prevent missing attribute crashes
+    if st.session_state.get("latency_snooze_until"):
         try:
             target_time = st.session_state.latency_snooze_until if isinstance(st.session_state.latency_snooze_until, datetime) else datetime.fromisoformat(st.session_state.latency_snooze_until)
             if datetime.now() < target_time:
@@ -144,7 +150,8 @@ with st.sidebar:
             else:
                 st.session_state.latency_snooze_until = None
                 st.session_state.snooze_selection = "Active (No Snooze)"
-                save_local_state()
+                try: save_local_state() 
+                except NameError: pass
         except: pass
 
 try:
