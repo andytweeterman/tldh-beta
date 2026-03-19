@@ -19,6 +19,14 @@ from audio_recorder_streamlit import audio_recorder
 from openai import OpenAI
 from PIL import Image
 import tempfile
+import time
+
+# --- FORCE SERVER TO US/EASTERN TIME ---
+os.environ['TZ'] = 'America/New_York'
+try:
+    time.tzset()
+except AttributeError:
+    pass # Fallback for Windows local testing
 
 # =============================================================================
 # GLOBAL SAFETY GUARDRAILS (FDA SaMD AVOIDANCE)
@@ -815,11 +823,13 @@ else:
         if st.button("🧠 Synthesize Daily Briefing", type="primary", use_container_width=True):
             with st.spinner("Compiling cross-domain telemetry..."):
                 try:
+                    current_time_str = datetime.now().strftime("%I:%M %p") # NEW: Grab the local time
                     sys_prompt = f"""You are an elite clinical data analyst. Look at the user's current data:
+                    Current Time: {current_time_str}
                     Glucose: {int(latest_bg['Glucose_Value'])} ({latest_bg['Trend']}), Whoop Strain: {w_strain}, Sleep: {w_sleep}%, Meetings today: {meeting_count}.
                     Return ONLY a JSON object with:
                     - "rating": Must be exactly "good", "caution", "danger", or "neutral" based on their combined risk.
-                    - "message": A 2-sentence punchy, actionable briefing on their current state and what to watch out for. Speak as 'you'."""
+                    - "message": A 2-sentence punchy, actionable briefing on their current state and what to watch out for NEXT based on the current time of day. Speak as 'you'."""
                     brief_data = ask_claude(sys_prompt, [{"role": "user", "content": "Generate my daily briefing."}])
                     st.session_state.daily_briefing = brief_data
                 except Exception as e:
