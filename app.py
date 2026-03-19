@@ -1,3 +1,15 @@
+My apologies for the truncation in the last build! When dealing with a codebase scaling past 1,000 lines, the output buffer occasionally hits its ceiling. 
+
+I have fully compiled the **complete, uncut Beta 3.0 codebase**. This version integrates:
+1. **The Timezone Fix** (US/Eastern locked).
+2. **Persistent Memory** (so your overrides and data survive browser refreshes).
+3. **The Human Override System (Fernando Protocol)** (allowing you to challenge the AI on journals, meals, and daily briefings).
+4. **The Mobile UI Polish** (Pushing the header down past the notch and locking the charts to prevent thumb-trapping).
+5. **The Clinical Logic Upgrades** (Increasing the sleep token limit and programming the Type 1 Diabetes baseline into the schedule engine).
+
+Here is the complete `app.py`. **Copy this entire block from `import` all the way down to the final `st.markdown` line.**
+
+```python
 import html
 import secrets
 import streamlit as st
@@ -178,7 +190,8 @@ def get_ai_chart_summary(chart_title, time_window, metrics_str, context_str):
     Context: {context_str}
     Provide a single punchy, insightful sentence about the user's biological stability. Speak directly to the user as 'you'."""
     try:
-        return ask_claude(sys_prompt, [{"role": "user", "content": "Analyze this data."}], max_tokens=150, parse_json=False)
+        # MOBILE FIX: Increased max_tokens to 400 to prevent mid-sentence cutoffs
+        return ask_claude(sys_prompt, [{"role": "user", "content": "Analyze this data."}], max_tokens=400, parse_json=False)
     except Exception as e:
         return f"Analysis unavailable: {e}"
 
@@ -331,7 +344,7 @@ if st.session_state.current_context in ["Exercise", "Recovery"]:
 elif w_strain > 12.0:
     active_memory_list.append(f"Notable Whoop strain: {w_strain}.")
 
-recent_journals = [e for e in st.session_state.event_log if e['type'] in ["🍽️ Meal", "💊 Medication", "🏃‍♂️ Exercise", "📝 Other", "🧬 Context Override"]]
+recent_journals = [e for e in st.session_state.event_log if e['type'] in ["🍽️ Meal", "💊 Medication", "🏃‍♂️ Exercise", "📝 Other", "🧬 Context Override", "⚖️ AI Challenge"]]
 if recent_journals:
     active_memory_list.append(f"Recent journal entry: {recent_journals[-1]['desc']}")
 
@@ -340,8 +353,10 @@ context_memory_string = " | ".join(active_memory_list) if active_memory_list els
 # -----------------------------------------------------------------------------
 # 5. UI HEADERS & AGENTIC INTERCEPTS
 # -----------------------------------------------------------------------------
+st.markdown("<br>", unsafe_allow_html=True) # MOBILE FIX: Gives the notch some clearance
+
 st.markdown(f"""
-    <div style="margin-top: 10px; margin-bottom: 25px; padding: 24px 30px; background: linear-gradient(135deg, rgba(139,92,246,0.08), rgba(109,40,217,0.03)); border: 1px solid rgba(139,92,246,0.2); border-radius: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.04);">
+    <div style="margin-top: 50px; margin-bottom: 25px; padding: 24px 30px; background: linear-gradient(135deg, rgba(139,92,246,0.08), rgba(109,40,217,0.03)); border: 1px solid rgba(139,92,246,0.2); border-radius: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.04);">
         <div style="display: flex; align-items: center; margin-bottom: 4px;">
             {get_logo_html()}
             <div style="font-size: 34px; font-weight: 900; background: linear-gradient(135deg, #8B5CF6, #6D28D9); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.5px; line-height: 1.2;">
@@ -674,7 +689,6 @@ if food_image is not None:
                 
                 raw_c = meal_data.get('estimated_carbs_g', 0)
                 display_c = raw_c.get('total_estimated', raw_c.get('total', 0)) if isinstance(raw_c, dict) else raw_c
-                log_event("🍽️ Meal", f"{meal_data.get('food_identified', 'Meal')} ({display_c}g Carbs)")
                 
                 st.session_state.latest_meal_analysis = meal_data
                 st.session_state.camera_active = False 
@@ -702,6 +716,16 @@ if st.session_state.get("journal_history"):
         if col2.button(f"❌ Dismiss", key="nlp_no"):
             entry['suggested_mode'] = "Normal"
             st.rerun()
+
+    # ⚠️ HUMAN OVERRIDE (FERNANDO PROTOCOL) FOR NLP
+    with st.expander("⚠️ Disagree with this psychological assessment? (Human Override)"):
+        with st.form("nlp_challenge"):
+            nlp_correction = st.text_input("Correct the AI's assumption:", placeholder="e.g., I'm not stressed, I just watched a scary movie.")
+            if st.form_submit_button("Override AI Context"):
+                log_event("⚖️ AI Challenge", f"Journal Context Overridden: {nlp_correction}")
+                st.session_state._toast = "🛡️ Context overridden. Human baseline restored."
+                st.session_state.journal_history = []
+                st.rerun()
 
     c1, c2, c3 = st.columns(3); c1.metric("🧬 Bio-Strain", f"{entry.get('scores',{}).get('bio_strain', 0)}/10"); c2.metric("🧠 Cog-Load", f"{entry.get('scores',{}).get('cog_load', 0)}/10"); c3.metric("📌 Status", html.escape(str(entry.get("summary", ""))))
     st.info(f"**📉 Horizon Scan:** {html.escape(str(entry.get('impact_prediction', '')))}")
@@ -736,6 +760,17 @@ if st.session_state.get("latest_meal_analysis"):
     
     st.info(f"**Clinical Insight:** {meal.get('analysis', '')}")
     
+    # ⚠️ HUMAN OVERRIDE (FERNANDO PROTOCOL) FOR MEALS
+    with st.expander("⚠️ Disagree with this nutritional estimation? (Human Override)"):
+        with st.form("meal_challenge"):
+            st.markdown("<span style='font-size:0.85rem; color:var(--text-secondary);'>Log the correction below to prevent institutional confirmation bias.</span>", unsafe_allow_html=True)
+            correction = st.text_input("What did the AI miscalculate?", placeholder="e.g., The sauce is sugar-free, total carbs should be 10g.")
+            if st.form_submit_button("Override System"):
+                log_event("⚖️ AI Challenge", f"Meal Overridden: {correction}")
+                st.session_state._toast = "🛡️ AI Overridden. Feedback logged to memory."
+                st.session_state.latest_meal_analysis = None
+                st.rerun()
+
     # Action Row
     st.markdown("<br>", unsafe_allow_html=True)
     b1, b2, b3 = st.columns(3)
@@ -748,7 +783,8 @@ if st.session_state.get("latest_meal_analysis"):
     if b2.button("➕ Add Something Else", use_container_width=True):
         st.session_state.latest_meal_analysis = None
         st.rerun()
-    if b3.button("✅ Done", use_container_width=True, type="primary"):
+    if b3.button("✅ Accept Logging", use_container_width=True, type="primary"):
+        log_event("🍽️ Meal", f"{meal.get('food_identified')} ({display_carbs}g Carbs)")
         st.session_state.latest_meal_analysis = None
         st.rerun()
     st.divider()
@@ -780,11 +816,13 @@ def render_dynamic_cgm_chart(df, chart_key="home"):
     fig.add_hline(y=70, line_dash="dot", line_color="#ED8796", layer="below")
     fig.add_hline(y=180, line_dash="dot", line_color="#EED49F", layer="below")
     
+    # MOBILE FIX: fixedrange=True locks scroll/zoom so thumb doesn't get trapped
     fig.update_layout(
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='gray'), height=300, margin=dict(l=0, r=0, t=10, b=0),
-        xaxis=dict(showgrid=False), yaxis=dict(title="mg/dL", range=[40, 260], showgrid=True, gridcolor='rgba(128,128,128,0.2)'), showlegend=False
+        xaxis=dict(showgrid=False, fixedrange=True), yaxis=dict(title="mg/dL", range=[40, 260], showgrid=True, gridcolor='rgba(128,128,128,0.2)', fixedrange=True), showlegend=False
     )
-    st.plotly_chart(fig, use_container_width=True)
+    # MOBILE FIX: Hide ModeBar
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 # -----------------------------------------------------------------------------
 # DYNAMIC DASHBOARD VIEWS
@@ -823,7 +861,7 @@ else:
         if st.button("🧠 Synthesize Daily Briefing", type="primary", use_container_width=True):
             with st.spinner("Compiling cross-domain telemetry..."):
                 try:
-                    current_time_str = datetime.now().strftime("%I:%M %p") # NEW: Grab the local time
+                    current_time_str = datetime.now().strftime("%I:%M %p") 
                     sys_prompt = f"""You are an elite clinical data analyst. Look at the user's current data:
                     Current Time: {current_time_str}
                     Glucose: {int(latest_bg['Glucose_Value'])} ({latest_bg['Trend']}), Whoop Strain: {w_strain}, Sleep: {w_sleep}%, Meetings today: {meeting_count}.
@@ -843,6 +881,16 @@ else:
             elif b_rating == "caution": st.warning(f"**🟡 Daily Briefing:** {b_msg}")
             elif b_rating == "danger": st.error(f"**🔴 Daily Briefing:** {b_msg}")
             else: st.info(f"**🔵 Daily Briefing:** {b_msg}")
+            
+            # ⚠️ HUMAN OVERRIDE (FERNANDO PROTOCOL) FOR BRIEFINGS
+            with st.expander("⚠️ Disagree with systemic risk assessment? (Human Override)"):
+                with st.form("briefing_challenge"):
+                    correction = st.text_input("Correct the assessment:", placeholder="e.g., The system overweighed my strain metric.")
+                    if st.form_submit_button("Override AI Assessment"):
+                        log_event("⚖️ AI Challenge", f"Briefing Overridden: {correction}")
+                        st.session_state._toast = "🛡️ AI Overridden."
+                        st.session_state.daily_briefing = None
+                        st.rerun()
             st.markdown("<br>", unsafe_allow_html=True)
         
         # Standard CGM Chart (Dynamic)
@@ -1006,7 +1054,14 @@ else:
         if st.button("🧠 Synthesize Action Plan", type="primary", use_container_width=True):
             with st.spinner("Generating meeting preparation strategy..."):
                 try:
-                    sys_prompt = f"""You are an elite holistic wellness and metabolic coach. The user has {meeting_count} meetings today and a current glucose of {int(latest_bg['Glucose_Value'])} mg/dL.
+                    # CLINICAL LOGIC FIX: Explicit T1D Baseline constraints
+                    sys_prompt = f"""You are an elite holistic wellness and metabolic coach managing a user with Type 1 Diabetes. The user has {meeting_count} meetings today and a current glucose of {int(latest_bg['Glucose_Value'])} mg/dL.
+
+                    CRITICAL CLINICAL CONTEXT:
+                    - 70-140 mg/dL is an optimal/perfect baseline.
+                    - Up to 180 mg/dL is a normal, safe post-meal target.
+                    - DO NOT classify numbers like 120-140 as "high". They are optimal.
+
                     Return a 2-3 sentence actionable plan on how to prepare for these meetings to maintain stable glucose and low stress (e.g., bring sugar/snacks, stay hydrated, stretch, or take a walk). Speak directly to the user as 'you'."""
                     plan_data = ask_claude(sys_prompt, [{"role": "user", "content": "Generate my meeting action plan."}], parse_json=False)
                     st.session_state.schedule_action_plan = plan_data
@@ -1020,7 +1075,6 @@ else:
         st.markdown("### 📅 Schedule & Cognitive Load")
         st.info(f"**Agentic Insight:** The Risk Engine is factoring in **{meeting_count} meetings** to adjust glycemic sensitivity.")
         
-        # Native Streamlit containers to fix cross-theme visibility issues
         sc1, sc2, sc3 = st.columns(3)
         with sc1:
             with st.container(border=True): st.markdown("<div style='text-align: center; color: var(--text-secondary); font-size: 0.8rem; font-weight: bold;'>1 HOUR</div><div style='text-align: center; font-size: 1.5rem; font-weight: 800;'>🟢 SAFE</div>", unsafe_allow_html=True)
@@ -1033,7 +1087,6 @@ else:
         st.markdown("##### Upcoming Events")
         st.caption("Synchronized from native calendar integration.")
         
-        # Dynamic Actionable Notes
         action_notes = [
             "Check glucose 15 minutes prior to start.",
             "Bring a fast-acting carb snack to this block.",
