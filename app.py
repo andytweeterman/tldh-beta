@@ -1,15 +1,3 @@
-My apologies for the truncation in the last build! When dealing with a codebase scaling past 1,000 lines, the output buffer occasionally hits its ceiling. 
-
-I have fully compiled the **complete, uncut Beta 3.0 codebase**. This version integrates:
-1. **The Timezone Fix** (US/Eastern locked).
-2. **Persistent Memory** (so your overrides and data survive browser refreshes).
-3. **The Human Override System (Fernando Protocol)** (allowing you to challenge the AI on journals, meals, and daily briefings).
-4. **The Mobile UI Polish** (Pushing the header down past the notch and locking the charts to prevent thumb-trapping).
-5. **The Clinical Logic Upgrades** (Increasing the sleep token limit and programming the Type 1 Diabetes baseline into the schedule engine).
-
-Here is the complete `app.py`. **Copy this entire block from `import` all the way down to the final `st.markdown` line.**
-
-```python
 import html
 import secrets
 import streamlit as st
