@@ -115,6 +115,38 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
+    st.markdown("### 🔕 Right to Latency")
+    snooze_options = {"Active (No Snooze)": 0, "Mute for 1 Hour": 1, "Mute for 2 Hours": 2, "Mute for 4 Hours": 4}
+
+    # Store the active snooze selection to prevent extending the timer on every rerun
+    if "snooze_selection" not in st.session_state:
+        st.session_state.snooze_selection = "Active (No Snooze)"
+
+    selected_snooze = st.selectbox("Snooze AI Intercepts", options=list(snooze_options.keys()), index=list(snooze_options.keys()).index(st.session_state.snooze_selection))
+
+    if selected_snooze != st.session_state.snooze_selection:
+        st.session_state.snooze_selection = selected_snooze
+        if selected_snooze != "Active (No Snooze)":
+            snooze_hours = snooze_options[selected_snooze]
+            st.session_state.latency_snooze_until = datetime.now() + timedelta(hours=snooze_hours)
+            save_local_state()
+            st.rerun()
+        else:
+            st.session_state.latency_snooze_until = None
+            save_local_state()
+            st.rerun()
+
+    if st.session_state.latency_snooze_until:
+        try:
+            target_time = st.session_state.latency_snooze_until if isinstance(st.session_state.latency_snooze_until, datetime) else datetime.fromisoformat(st.session_state.latency_snooze_until)
+            if datetime.now() < target_time:
+                st.success(f"Agentic intercepts muted until {target_time.strftime('%I:%M %p')}")
+            else:
+                st.session_state.latency_snooze_until = None
+                st.session_state.snooze_selection = "Active (No Snooze)"
+                save_local_state()
+        except: pass
+
 try:
     client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
     ACTIVE_MODEL = 'claude-haiku-4-5' 
@@ -213,7 +245,8 @@ def save_local_state():
         "event_log": st.session_state.get("event_log", []),
         "favorite_meals": st.session_state.get("favorite_meals", []),
         "current_context": st.session_state.get("current_context", "Normal"),
-        "context_end_time": st.session_state.get("context_end_time").isoformat() if st.session_state.get("context_end_time") and isinstance(st.session_state.context_end_time, datetime) else None
+        "context_end_time": st.session_state.get("context_end_time").isoformat() if st.session_state.get("context_end_time") and isinstance(st.session_state.context_end_time, datetime) else None,
+        "latency_snooze_until": st.session_state.get("latency_snooze_until").isoformat() if st.session_state.get("latency_snooze_until") and isinstance(st.session_state.latency_snooze_until, datetime) else None
     }
     try:
         with open(STATE_FILE, "w") as f:
@@ -228,6 +261,10 @@ if "current_context" not in st.session_state: st.session_state.current_context =
 if "context_end_time" not in st.session_state: 
     cached_time = persisted_state.get("context_end_time")
     st.session_state.context_end_time = datetime.fromisoformat(cached_time) if cached_time else None
+
+if "latency_snooze_until" not in st.session_state:
+    cached_snooze = persisted_state.get("latency_snooze_until")
+    st.session_state.latency_snooze_until = datetime.fromisoformat(cached_snooze) if cached_snooze else None
 
 if "hydration_oz" not in st.session_state: st.session_state.hydration_oz = persisted_state.get("hydration_oz", 0)
 if "event_log" not in st.session_state: st.session_state.event_log = persisted_state.get("event_log", [])
@@ -358,15 +395,19 @@ st.markdown(f"""
 if st.session_state.current_context == "Normal":
     auto_mode, auto_dur, auto_reason = None, 0, ""
     
-    if w_strain > 14.0 and latest_bg['Trend'] in ["Falling", "Falling Fast"]:
-        auto_mode, auto_dur, auto_reason = "Recovery", 2, "High Whoop strain detected with dropping glucose."
-    elif w_strain > 14.0:
-        auto_mode, auto_dur, auto_reason = "Exercise", 2, "High systemic strain detected via Whoop."
-        
-    if auto_mode and auto_mode in st.session_state.muted_intercepts:
-        if datetime.now() < st.session_state.muted_intercepts[auto_mode]:
-            auto_mode = None 
+    # Right to Latency check
+    latency_active = st.session_state.get("latency_snooze_until") and datetime.now() < datetime.fromisoformat(st.session_state.latency_snooze_until) if isinstance(st.session_state.get("latency_snooze_until"), str) else (st.session_state.get("latency_snooze_until") and datetime.now() < st.session_state.latency_snooze_until)
+
+    if not latency_active:
+        if w_strain > 14.0 and latest_bg['Trend'] in ["Falling", "Falling Fast"]:
+            auto_mode, auto_dur, auto_reason = "Recovery", 2, "High Whoop strain detected with dropping glucose."
+        elif w_strain > 14.0:
+            auto_mode, auto_dur, auto_reason = "Exercise", 2, "High systemic strain detected via Whoop."
             
+        if auto_mode and auto_mode in st.session_state.muted_intercepts:
+            if datetime.now() < st.session_state.muted_intercepts[auto_mode]:
+                auto_mode = None
+
     if auto_mode:
         st.info(f"🤖 **Agentic Intercept:** {auto_reason} Shift to **{auto_mode}** mode for {auto_dur} hours?")
         col1, col2, _ = st.columns([1, 1, 3])
@@ -708,9 +749,11 @@ if st.session_state.get("journal_history"):
     # ⚠️ HUMAN OVERRIDE (FERNANDO PROTOCOL) FOR NLP
     with st.expander("⚠️ Disagree with this psychological assessment? (Human Override)"):
         with st.form("nlp_challenge"):
+            st.markdown("<span style='font-size:0.85rem; color:var(--text-secondary);'>Provide feedback to prevent institutional confirmation bias.</span>", unsafe_allow_html=True)
+            challenge_category = st.selectbox("What is incorrect?", ["Context is wrong", "Emotion/Tone misidentified", "Strain weighting too high", "Other"])
             nlp_correction = st.text_input("Correct the AI's assumption:", placeholder="e.g., I'm not stressed, I just watched a scary movie.")
             if st.form_submit_button("Override AI Context"):
-                log_event("⚖️ AI Challenge", f"Journal Context Overridden: {nlp_correction}")
+                log_event("⚖️ AI Challenge", f"Journal Context Overridden [{challenge_category}]: {nlp_correction}")
                 st.session_state._toast = "🛡️ Context overridden. Human baseline restored."
                 st.session_state.journal_history = []
                 st.rerun()
@@ -752,10 +795,14 @@ if st.session_state.get("latest_meal_analysis"):
     with st.expander("⚠️ Disagree with this nutritional estimation? (Human Override)"):
         with st.form("meal_challenge"):
             st.markdown("<span style='font-size:0.85rem; color:var(--text-secondary);'>Log the correction below to prevent institutional confirmation bias.</span>", unsafe_allow_html=True)
-            correction = st.text_input("What did the AI miscalculate?", placeholder="e.g., The sauce is sugar-free, total carbs should be 10g.")
+
+            challenge_category = st.selectbox("What is incorrect?", ["Total Carbs are wrong", "Missing an ingredient", "Glycemic Index is off", "Context/Preparation matters"])
+            carb_correction = st.number_input("Correct Total Carbs (g) if applicable:", min_value=0, max_value=500, value=0)
+            correction = st.text_input("Qualitative details:", placeholder="e.g., The sauce is sugar-free.")
+
             if st.form_submit_button("Override System"):
-                log_event("⚖️ AI Challenge", f"Meal Overridden: {correction}")
-                st.session_state._toast = "🛡️ AI Overridden. Feedback logged to memory."
+                log_event("⚖️ AI Challenge", f"Meal Overridden [{challenge_category}]: {correction} (Carbs: {carb_correction}g)")
+                st.session_state._toast = "🛡️ AI Overridden. Structured feedback logged to memory."
                 st.session_state.latest_meal_analysis = None
                 st.rerun()
 
@@ -873,10 +920,12 @@ else:
             # ⚠️ HUMAN OVERRIDE (FERNANDO PROTOCOL) FOR BRIEFINGS
             with st.expander("⚠️ Disagree with systemic risk assessment? (Human Override)"):
                 with st.form("briefing_challenge"):
+                    st.markdown("<span style='font-size:0.85rem; color:var(--text-secondary);'>Provide feedback to prevent institutional confirmation bias.</span>", unsafe_allow_html=True)
+                    challenge_category = st.selectbox("What is incorrect?", ["Risk rating is too high", "Risk rating is too low", "Irrelevant metrics emphasized", "Missing context"])
                     correction = st.text_input("Correct the assessment:", placeholder="e.g., The system overweighed my strain metric.")
                     if st.form_submit_button("Override AI Assessment"):
-                        log_event("⚖️ AI Challenge", f"Briefing Overridden: {correction}")
-                        st.session_state._toast = "🛡️ AI Overridden."
+                        log_event("⚖️ AI Challenge", f"Briefing Overridden [{challenge_category}]: {correction}")
+                        st.session_state._toast = "🛡️ AI Overridden. Structured feedback logged."
                         st.session_state.daily_briefing = None
                         st.rerun()
             st.markdown("<br>", unsafe_allow_html=True)
